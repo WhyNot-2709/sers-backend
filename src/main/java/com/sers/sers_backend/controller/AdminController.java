@@ -9,7 +9,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/admin")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "http://localhost:3000") // Matches your React frontend
 public class AdminController {
 
     @Autowired private AdminService adminService;
@@ -35,5 +35,13 @@ public class AdminController {
             @RequestParam Integer studentId,
             @RequestParam Integer courseId) {
         return adminService.overrideAllocation(studentId, courseId);
+    }
+
+    // NEW ENDPOINT: Removes a student from a course
+    @DeleteMapping("/courses/{courseId}/students/{studentId}")
+    public Map<String, Object> removeStudentFromCourse(
+            @PathVariable Integer courseId,
+            @PathVariable Integer studentId) {
+        return adminService.removeStudentFromCourse(studentId, courseId);
     }
 }

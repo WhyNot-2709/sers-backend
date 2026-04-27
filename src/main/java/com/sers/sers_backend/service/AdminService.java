@@ -6,6 +6,7 @@ import com.sers.sers_backend.entity.*;
 import com.sers.sers_backend.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional; // Added for data safety
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -26,7 +27,8 @@ public class AdminService {
         stats.put("totalConfirmed", selectionRepo.findAll().stream()
                 .filter(s -> s.getStatus().equals("CONFIRMED")).count());
 
-        List<Map<String, Object>> courseStats = courseRepo.findByIsFixedFalseAndIsActiveTrue().stream()                .map(course -> {
+        List<Map<String, Object>> courseStats = courseRepo.findByIsFixedFalseAndIsActiveTrue().stream()
+                .map(course -> {
                     Map<String, Object> cs = new HashMap<>();
                     cs.put("courseId", course.getId());
                     cs.put("courseName", course.getName());
@@ -42,6 +44,7 @@ public class AdminService {
         return stats;
     }
 
+    @Transactional
     public Map<String, Object> overrideAllocation(Integer studentId, Integer courseId) {
         Student student = studentRepo.findById(studentId).orElseThrow();
         Course course = courseRepo.findById(courseId).orElseThrow();
@@ -78,5 +81,39 @@ public class AdminService {
         return selectionRepo.findByCourseAndStatus(course, "CONFIRMED").stream()
                 .map(sel -> studentService.toDTO(sel.getStudent()))
                 .collect(Collectors.toList());
+    }
+
+    // NEW METHOD: Removes a student, drops their seat, and cleans up overrides
+    @Transactional
+    public Map<String, Object> removeStudentFromCourse(Integer studentId, Integer courseId) {
+        Student student = studentRepo.findById(studentId)
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+        Course course = courseRepo.findById(courseId)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
+
+        // 1. Remove the active course selection and free up the seat
+        Optional<ElectiveSelection> selection = selectionRepo.findByStudentAndCourse(student, course);
+        if (selection.isPresent()) {
+            // Only decrement if the student actually held a confirmed seat
+            if ("CONFIRMED".equals(selection.get().getStatus()) && course.getCurrentSeats() > 0) {
+                course.setCurrentSeats(course.getCurrentSeats() - 1);
+                courseRepo.save(course);
+            }
+            selectionRepo.delete(selection.get());
+        }
+
+        // 2. Clean up any manual Admin Allocations for this specific course/student combo
+        List<Allocation> allocationsToRemove = allocationRepo.findAll().stream()
+                .filter(a -> a.getStudent().getId().equals(studentId) && a.getCourse().getId().equals(courseId))
+                .collect(Collectors.toList());
+
+        if (!allocationsToRemove.isEmpty()) {
+            allocationRepo.deleteAll(allocationsToRemove);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Student successfully removed from the course");
+        return response;
     }
 }
